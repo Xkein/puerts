@@ -6,6 +6,9 @@
  * which is part of this source code package.
  */
 
+#ifndef USING_IN_UNREAL_ENGINE
+#include "../../../../../unity/native_src/Inc/V8Utils.h"
+#else
 #pragma once
 
 #include <vector>
@@ -323,3 +326,4 @@ public:
     {                                                      \
         return;                                            \
     }
+#endif

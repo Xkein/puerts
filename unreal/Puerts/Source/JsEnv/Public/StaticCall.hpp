@@ -476,6 +476,7 @@ private:
     struct ArgumentHolder<T,
         typename std::enable_if<
             (is_objecttype<typename std::decay<T>::type>::value || is_uetype<typename std::decay<T>::type>::value) &&
+            std::is_copy_assignable_v<typename std::decay<T>::type> &&
             std::is_lvalue_reference<T>::value && std::is_const<typename std::remove_reference<T>::type>::value>::type>
     {
         typename ArgumentType<T>::type Arg;
@@ -498,6 +499,35 @@ private:
         {
             Buf = InArg;
             Arg = Buf;
+        }
+
+        void SetRef(typename API::ContextType context, typename API::ValueType holder)
+        {
+        }
+    };
+    template <typename T>
+    struct ArgumentHolder<T,
+        typename std::enable_if<
+            (is_objecttype<typename std::decay<T>::type>::value || is_uetype<typename std::decay<T>::type>::value) &&
+            !std::is_copy_assignable_v<typename std::decay<T>::type> &&
+            std::is_lvalue_reference<T>::value && std::is_const<typename std::remove_reference<T>::type>::value>::type>
+    {
+        typename ArgumentType<T>::type Arg;
+
+        // there may be nullptr ref
+        ArgumentHolder(std::tuple<typename API::ContextType, typename API::ValueType> info)
+            : Arg(*DecayTypeConverter<typename std::decay<T>::type*>::toCpp(std::get<0>(info), std::get<1>(info)))
+        {
+        }
+
+        typename ArgumentType<T>::type& GetArgument()
+        {
+            return Arg;
+        }
+
+        void SetArgument(typename ArgumentType<T>::type InArg)
+        {
+            Arg = InArg;
         }
 
         void SetRef(typename API::ContextType context, typename API::ValueType holder)
