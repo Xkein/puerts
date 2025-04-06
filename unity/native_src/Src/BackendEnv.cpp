@@ -235,6 +235,36 @@ void FBackendEnv::GlobalPrepare()
         v8::V8::SetFlagsFromString(Flags.c_str(), static_cast<int>(Flags.size()));
 
 #if defined(WITH_NODEJS)
+#if V8_MAJOR_VERSION >= 12
+        int Argc = 2;
+        char* ArgvIn[] = {"puerts"};
+        char** Argv = uv_setup_args(Argc, ArgvIn);
+        Args = new std::vector<std::string>(Argv, Argv + Argc);
+        ExecArgs = new std::vector<std::string>();
+        Errors = new std::vector<std::string>();
+        std::shared_ptr<node::InitializationResult> result =
+            node::InitializeOncePerProcess(*Args, {
+                                                      node::ProcessInitializationFlags::kNoInitializeV8,
+                                                      node::ProcessInitializationFlags::kNoInitializeNodeV8Platform,
+                                                      // This is used to test NODE_REPL_EXTERNAL_MODULE is disabled with
+                                                      // kDisableNodeOptionsEnv. If other tests need NODE_OPTIONS
+                                                      // support in the future, split this configuration out as a
+                                                      // command line option.
+                                                      node::ProcessInitializationFlags::kDisableNodeOptionsEnv,
+                                                  });
+
+        for (const std::string& error : result->errors())
+        {
+            printf(error.c_str());
+        }
+        if (result->early_return() != 0)
+        {
+            printf("InitializeOncePerProcess failed\n");
+        }
+        GPlatform = node::MultiIsolatePlatform::Create(4);
+        v8::V8::InitializePlatform(GPlatform.get());
+        v8::V8::Initialize();
+#else
         int Argc = 2;
         char* ArgvIn[] = {"puerts", "--no-harmony-top-level-await"};
         char ** Argv = uv_setup_args(Argc, ArgvIn);
@@ -250,6 +280,7 @@ void FBackendEnv::GlobalPrepare()
         {
             printf("InitializeNodeWithArgs failed\n");
         }
+#endif
 #else
         GPlatform = v8::platform::NewDefaultPlatform();
         v8::V8::InitializePlatform(GPlatform.get());
@@ -269,12 +300,23 @@ void FBackendEnv::Initialize(void* external_quickjs_runtime, void* external_quic
         return;
     }
 
+#if V8_MAJOR_VERSION >= 12
+    auto Platform = static_cast<node::MultiIsolatePlatform*>(GPlatform.get());
+    NodeSetup = node::CommonEnvironmentSetup::Create(Platform, Errors, *Args, *ExecArgs);
+    if (!NodeSetup)
+    {
+        for (const std::string& err : *Errors)
+            printf(err.c_str());
+        return;
+    }
+    MainIsolate = NodeSetup->isolate();
+#else
     NodeArrayBufferAllocator = node::ArrayBufferAllocator::Create();
     // PLog(Log, "[PuertsDLL][JSEngineWithNode]isolate");
 
     auto Platform = static_cast<node::MultiIsolatePlatform*>(GPlatform.get());
-    MainIsolate = node::NewIsolate(NodeArrayBufferAllocator.get(), &NodeUVLoop,
-        Platform);
+    MainIsolate = node::NewIsolate(NodeArrayBufferAllocator.get(), &NodeUVLoop, Platform);
+#endif
 
     MainIsolate->SetMicrotasksPolicy(v8::MicrotasksPolicy::kAuto);
 #else
@@ -297,7 +339,11 @@ void FBackendEnv::Initialize(void* external_quickjs_runtime, void* external_quic
     v8::Isolate::Scope Isolatescope(Isolate);
     v8::HandleScope HandleScope(Isolate);
 #if defined(WITH_NODEJS)
+#if V8_MAJOR_VERSION >= 12
+    v8::Local<v8::Context> Context = NodeSetup->context();
+#else
     v8::Local<v8::Context> Context = node::NewContext(Isolate);
+#endif
 #elif defined(WITH_QUICKJS)
     v8::Local<v8::Context> Context = (external_quickjs_runtime && external_quickjs_context) ? v8::Context::New(Isolate, external_quickjs_context) : v8::Context::New(Isolate);
 #else
@@ -311,10 +357,13 @@ void FBackendEnv::Initialize(void* external_quickjs_runtime, void* external_quic
     auto strConsole = v8::String::NewFromUtf8(Isolate, "console").ToLocalChecked();
     v8::Local<v8::Value> Console = Global->Get(Context, strConsole).ToLocalChecked();
 
+#if V8_MAJOR_VERSION >= 12
+    NodeEnv = NodeSetup->env();
+#else
     NodeIsolateData = node::CreateIsolateData(Isolate, &NodeUVLoop, Platform, NodeArrayBufferAllocator.get()); // node::FreeIsolateData
 
     NodeEnv = CreateEnvironment(NodeIsolateData, Context, *Args, *ExecArgs, (node::EnvironmentFlags::Flags)(node::EnvironmentFlags::kOwnsProcessState | node::EnvironmentFlags::kNoRegisterESMLoader | node::EnvironmentFlags::kNoCreateInspector));
-
+#endif
     Global->Set(Context, strConsole, Console).Check();
 
     v8::MaybeLocal<v8::Value> LoadenvRet = node::LoadEnvironment(
@@ -372,6 +421,11 @@ void FBackendEnv::UnInitialize()
     JS_FreeValueRT(MainIsolate->runtime_, JsFileNormalize);
     JS_FreeValueRT(MainIsolate->runtime_, JsFileLoader);
 #endif
+#if V8_MAJOR_VERSION >= 12 && WITH_NODEJS
+    node::Stop(NodeEnv);
+    NodeSetup.reset();
+    MainIsolate = nullptr;
+#else
 #if WITH_NODEJS
     // node::EmitExit(NodeEnv);
     node::Stop(NodeEnv);
@@ -387,6 +441,7 @@ void FBackendEnv::UnInitialize()
     MainContext.Reset();
     MainIsolate->Dispose();
     MainIsolate = nullptr;
+#endif
 #if WITH_NODEJS
     // Wait until the platform has cleaned up all relevant resources.
     // while (!platform_finished)

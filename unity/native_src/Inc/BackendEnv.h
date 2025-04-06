@@ -56,7 +56,11 @@ namespace PUERTS_NAMESPACE
 
         std::unique_ptr<node::ArrayBufferAllocator> NodeArrayBufferAllocator;
 
+#if V8_MAJOR_VERSION >= 12
+        std::unique_ptr<node::CommonEnvironmentSetup> NodeSetup;
+#else
         node::IsolateData* NodeIsolateData;
+#endif
 
         node::Environment* NodeEnv;
 
