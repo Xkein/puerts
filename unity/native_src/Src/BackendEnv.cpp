@@ -236,7 +236,7 @@ void FBackendEnv::GlobalPrepare()
 
 #if defined(WITH_NODEJS)
 #if V8_MAJOR_VERSION >= 12
-        int Argc = 2;
+        int Argc = 1;
         char* ArgvIn[] = {"puerts"};
         char** Argv = uv_setup_args(Argc, ArgvIn);
         Args = new std::vector<std::string>(Argv, Argv + Argc);
