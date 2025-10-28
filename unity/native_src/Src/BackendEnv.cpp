@@ -53,6 +53,9 @@ static std::vector<std::string>* ExecArgs;
 static std::vector<std::string>* Errors;
 #endif
 
+#if V8_MAJOR_VERSION >= 12
+#define NodeUVLoop (*NodeUVLoopPtr)
+#endif
 void FBackendEnv::StartPolling()
 {
 #if defined(WITH_NODEJS)
@@ -292,14 +295,6 @@ void FBackendEnv::GlobalPrepare()
 void FBackendEnv::Initialize(void* external_quickjs_runtime, void* external_quickjs_context)
 {
 #if defined(WITH_NODEJS)
-    const int Ret = uv_loop_init(&NodeUVLoop);
-    if (Ret != 0)
-    {
-        // TODO log
-        printf("uv_loop_init failed\n");
-        return;
-    }
-
 #if V8_MAJOR_VERSION >= 12
     auto Platform = static_cast<node::MultiIsolatePlatform*>(GPlatform.get());
     NodeSetup = node::CommonEnvironmentSetup::Create(Platform, Errors, *Args, *ExecArgs);
@@ -310,7 +305,16 @@ void FBackendEnv::Initialize(void* external_quickjs_runtime, void* external_quic
         return;
     }
     MainIsolate = NodeSetup->isolate();
+    NodeUVLoopPtr = NodeSetup->event_loop();
 #else
+    const int Ret = uv_loop_init(&NodeUVLoop);
+    if (Ret != 0)
+    {
+        // TODO log
+        printf("uv_loop_init failed\n");
+        return;
+    }
+
     NodeArrayBufferAllocator = node::ArrayBufferAllocator::Create();
     // PLog(Log, "[PuertsDLL][JSEngineWithNode]isolate");
 

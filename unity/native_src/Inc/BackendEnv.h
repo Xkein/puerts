@@ -52,7 +52,11 @@ namespace PUERTS_NAMESPACE
         void StopPolling();
 
 #if defined(WITH_NODEJS)
+#if V8_MAJOR_VERSION >= 12
+        uv_loop_t* NodeUVLoopPtr;
+#else
         uv_loop_t NodeUVLoop;
+#endif
 
         std::unique_ptr<node::ArrayBufferAllocator> NodeArrayBufferAllocator;
 
